@@ -1,1 +1,1 @@
-# this repository is for text-mining-project code.
+# This repository is for text-mining-project code was conducted using MSHA public data.
