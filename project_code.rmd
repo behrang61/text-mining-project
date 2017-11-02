@@ -1,0 +1,268 @@
+---
+title: "Fatal Accidents - Coal Mining"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(tidy = TRUE)
+```
+
+
+
+### Import Data
+
+```{r, warning=FALSE}
+
+setwd("C:/Users/Astron/Desktop/Coal Mines Paper/ind_rpt")
+
+filelist = list.files()
+
+document <- c(1:119)
+report <- rep("0",119)
+ftl.df <- data.frame(cbind(document,report), stringsAsFactors = F)
+
+for(i in 1:length(filelist)){
+  ftl.df$report[i] <- readLines(filelist[i], warn = F)
+}
+```
+
+Remove numbers and punctuation from data
+```{r, warning=F, message=F}
+library(tm)
+ftl.df$report <- removeNumbers(ftl.df$report)
+ftl.df$report <- removePunctuation(ftl.df$report)
+ftl.df$report <- stripWhitespace(ftl.df$report)
+```
+
+
+```{r, warning=F, message=F}
+library(dplyr)
+library(ggplot2)
+library(magrittr)
+library(tidytext)
+```
+
+
+### Convert to tidy format
+```{r}
+ftl.td <- ftl.df %>%
+            unnest_tokens(word, report)
+```
+
+Remove stopwords
+```{r}
+data("stop_words")
+
+ftl.td <- ftl.td %>%
+  anti_join(stop_words)
+```
+
+Remove custom stopwords
+```{r, warning=F}
+own_stopwords <- c("approximately", "area", "continuous", "caught", "december", "february", "january", "july", "june", "march", "monday", "october", "received", "machine", "moving", "right", "saturday", "september", "thursday","pm", "tuesday", "wednesday", "two", "weeks", "side", "fatally", "friday", "coal", "mine", "killed", "accident", "inches", "miner", "miners", "mining", "occurred", "old", "operator", "operating", "victim", "working", "wide", "thick", "portion", "long", "left", "head", "high", "year", "yearold", "years", "another", "april", "just", "found", "august", "away", "adjacent", "contract", "first", "experience", "preparation", "used", "located", "large", "attempting", "time", "end", "remote", "november", "may", "back", "front", "last", "near", "traveled", "foot", "work", "installing", "diesel", "top", "causing", "support", "controlled", "face", "driver", "entry", "feet", "injured", "injuries", "fatal", "sustained","died","sunday","mined","involved", "descended","activities","victims","edge")
+ftl.td <- filter(ftl.td, !word %in% own_stopwords)
+```
+
+
+### Most common words
+```{r}
+
+ftl.tf <- ftl.td %>%
+          count(word, sort = TRUE) %>%
+          filter(n > 10) %>%
+           mutate(word = reorder(word, n)) 
+  ftl.tf %>%
+  ggplot(aes(word, n, fill=n)) +
+  geom_col(width = 0.9) +
+  xlab(NULL) +
+  coord_flip() +
+  theme(legend.title=element_blank(),legend.key.height=unit(2,"line"), axis.text=element_text(face="bold", size = 36)) 
+
+```
+
+
+### TF-IDF
+```{r}
+ftl_sort.td <- ftl.td %>%
+  count(document, word, sort = TRUE)
+
+ftl.tfidf <- ftl_sort.td %>%
+  bind_tf_idf(word, document, n)
+
+# lets look at terms with high tf-idf
+ftl.tfidf %>%
+  arrange(desc(tf_idf))
+```
+
+
+Let’s look at a visualization for these high tf-idf words
+```{r}
+plot_idf <- ftl.tfidf %>%
+  arrange(desc(tf_idf)) %>%
+  mutate(word = factor(word, levels = rev(unique(word))))
+
+plot_idf[1:30,] %>% 
+  ggplot(aes(word, tf_idf, fill=tf_idf)) +
+  geom_col() +
+  labs(x = NULL, y = "tf-idf weightage") +
+  coord_flip() +
+  theme(legend.title=element_blank(),legend.key.height=unit(3,"line"), axis.text=element_text(face="bold", size = 30)) 
+```
+
+
+
+There are some interesting words in the above two barplots which are most relevant to the cause of the accident. For better analyzation we need to segregate the words according to verbs (which define how the accident took place) and nouns or other POS (which are elements responsible for the accidents). There are several algorithms and packages for POS tagging and we have implemented one of them, but POS representation of words in the context of our reports are true for some words and not accurate for others. As our goal is to explain our analysis with a few set of words, we can filter words and tag them manually for their POS. 
+  
+  Until now we have seen words which are most frequent as well as most important in our corpus. Now, before we tag our words we need to filter them by gaining a common ground between the above two methods, because both of them are vital to our analysis. So, we are going to summarize the "ftl.tfidf" dataframe by each unique word and order them based on  frequency "n" and "tf_idf" score. Of these we pick the top most words and plot them. This is one of the simplest ranking system for tf-idf terms. 
+
+```{r}
+# vocab.tfidf <- merge(ftl.tfidf, parts_of_speech, by="word") # tagging parts of speech
+# vocab.tfidf$pos <- sub(" .*", "", vocab.tfidf$pos) # simplifying parts of speech
+# vocab.tfidf$document <- as.numeric(vocab.tfidf$document)
+# vocab.tfidf <- vocab.tfidf[order(vocab.tfidf$pos),]
+# vocab.tfidf <- vocab.tfidf[!duplicated(vocab.tfidf),] # remove duplicated copies
+# vocab.tfidf <- vocab.tfidf[order(vocab.tfidf$word, vocab.tfidf$document),]
+# 
+# # Removing multiple POS for the same word
+# # by converting any word that can be a noun as noun
+# tmp1 <- vocab.tfidf
+# tmp2 <- data.frame(word=character(), 
+#                    document=numeric(), 
+#                    n = integer(), 
+#                    tf = double(),
+#                    idf = double(),
+#                    tf_idf = double(),
+#                    pos = character(), 
+#                    stringsAsFactors = F)
+# j <- 1
+# for(i in 1:nrow(tmp1)){
+#   if(i > 1){
+#     if(tmp1$word[i]==prwrd & tmp1$document[i]==prdoc){
+#       tmp2[j,] <- tmp1[i,]
+#       j <- j+1
+#     }
+#   }
+#   prwrd <- tmp1$word[i]
+#   prdoc <- tmp1$document[i]
+# }
+# 
+# tmp1 <- anti_join(tmp1,tmp2)
+# tmp1 <- tmp1[order(tmp1$word,tmp1$document),]
+# 
+# vocab.tfidf <- tmp1
+```
+
+```{r}
+smz.df <- subset(ftl.tfidf, select = c(word,n,tf_idf))
+smz.df$word <- as.factor(smz.df$word)
+smz.df <- smz.df %>% group_by(word) %>% summarise(n = sum(n), tf_idf = sum(tf_idf))
+smz.df <- smz.df[order(smz.df$n,smz.df$tf_idf, decreasing = T),]
+top.df <- smz.df[1:50,]
+top.df$pos <- c(rep("Noun",3), "Verb", "Noun", "Verb", "Noun", "Verb", rep("Noun",6), "Verb", rep("Noun",7), "Verb", "Noun", "Verb", "Noun", "Verb", rep("Noun", 10), rep("Verb",2), rep("Noun",3), "Verb", rep("Noun",5), "Verb", "Noun")
+```
+
+Wordcloud by frequency for the top words 
+chosen by combination of frequency and tf-idf
+```{r}
+library("wordcloud")
+library("RColorBrewer")
+set.seed(1234)
+wordcloud(words = top.df$word, freq = top.df$n, 
+          random.order=FALSE, random.color = FALSE,
+          colors=brewer.pal(8, "Dark2"))
+```
+
+
+Wordcloud by tf_idf weightage for the top words 
+chosen by combination of frequency and tf-idf
+```{r}
+library("wordcloud")
+library("RColorBrewer")
+set.seed(1234)
+wordcloud(words = top.df$word, freq = top.df$tf_idf, 
+          min.freq = 0.00, random.color = FALSE,
+          random.order=FALSE, colors=brewer.pal(8, "Dark2"))
+```
+
+
+
+
+Correlation Network plot for all words across documents
+
+```{r, fig.height=10, fig.width=7}
+library(widyr)
+library(ggraph)
+library(igraph)
+
+word_cors <- ftl.tfidf %>%
+  group_by(word) %>%
+  filter(n() >= 5) %>%
+  pairwise_cor(word, document, sort = TRUE)
+
+set.seed(2017)
+
+word_cors %>%
+  filter(correlation > .15) %>%
+  graph_from_data_frame() %>%
+  ggraph() +
+  geom_edge_link(aes(edge_alpha = correlation, edge_width = correlation, color = correlation), show.legend = T) +
+  guides(edge_alpha = "none", edge_width = "none") +
+  scale_edge_colour_gradientn(limits = c(-1, 1), colors = c("firebrick2", "dodgerblue2")) +
+  geom_node_point(color = "white", size = 2) +
+  geom_node_text(aes(label = name), repel=T, check_overlap = T ,size=5) +
+  theme_graph()
+```
+If we observe carefully the word "positioned" is at the center of the network plot and it is not highly correlated to any specific set of words which tells us that "positioned" can occur in multiple types of accident situations. It could be useful to once review the documents for this word along with other verb oriented words. 
+
+
+
+Lets once again visualize the correlation network plot for top 50 words adjusting correlation value to observe which close set of words "positioned" is highly correlated across the documents
+
+```{r}
+library(widyr)
+library(ggraph)
+library(igraph)
+
+dcwrds.df <- subset(ftl.tfidf, ftl.tfidf$word %in% top.df$word) 
+
+word_cors <- dcwrds.df %>%
+  group_by(word) %>%
+  pairwise_cor(word, document, sort = TRUE)
+
+set.seed(2017)
+
+word_cors %>%
+  filter(correlation > .27) %>%
+  graph_from_data_frame() %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(edge_alpha = correlation), show.legend = FALSE) +
+  geom_node_point(color = "lightblue", size = 5) +
+  geom_node_text(aes(label = name), repel = TRUE) +
+  theme_void()
+```
+
+This shows the words closest in correlation with "positioned". This graph could be further refined for the final paper. 
+
+
+Lets see the percentage of accidents occured by vehicles and contrast it those occured by wrong positioning 
+
+```{r}
+# Classifying accidents 
+type <- c("Vehicle","Fall of Objects","Vehicle","Vehicle","Vehicle","Vehicle","Machinery","Vehicle","Vehicle","Machinery","Vehicle","Machinery","Machinery","Machinery","Machinery","Machinery","Mispositioned","Machinery","Machinery","Explosion","Fall of Objects","Fall of Objects","Machinery","Machinery","Vehicle","Vehicle","Fall of Objects","Machinery","Machinery","Fall of Objects","Machinery","Fall of Objects","Mispositioned","Vehicle","Fall of Objects","Mispositioned","Vehicle","Vehicle","Machinery","Machinery","Vehicle","Machinery","Vehicle","Vehicle","Vehicle","Fall of Objects", "Mispositioned","Vehicle", "Machinery","Fall of Objects", "Vehicle","Fall of Objects","Mispositioned","Machinery","Mispositioned","Fall of Objects","Mispositioned","Vehicle","Mispositioned","Explosion","Explosion","Fall of Objects","Mispositioned","Machinery","Fall of Objects","Machinery","Fall of Objects","Fall of Objects","Machinery","Fall of Objects","Mispositioned","Vehicle","Fall of Objects","Machinery","Vehicle","Machinery","Vehicle","Fall of Objects","Machinery","Fall of Objects","Fall of Objects","Fall of Objects","Machinery","Vehicle","Vehicle","Fall of Objects","Explosion","Vehicle","Vehicle","Vehicle","Mispositioned","Vehicle","Fall of Objects","Vehicle","Fall of Objects","Fall of Objects","Machinery","Fall of Objects","Machinery","Vehicle","Vehicle","Fall of Objects","Fall of Objects","Fall of Objects","Machinery","Vehicle","Machinery","Fall of Objects","Fall of Objects","Mispositioned","Vehicle","Machinery","Vehicle","Fall of Objects","Machinery","Mispositioned","Machinery","Mispositioned","Mispositioned")
+
+classified.df <- cbind(ftl.df,type)
+cat.df <- as.data.frame(table(classified.df$type))
+colnames(cat.df) <- c("type","count")
+
+library(wesanderson)
+# Plot a bar plot
+ggplot(cat.df, aes(x=reorder(type,-count), y=count, fill=type))+geom_bar(stat = "Identity")+ xlab("Accident Categories")+ylab(NULL)+ guides(fill=guide_legend(title=expression(paste("Accident\nCategories"))))+
+  scale_fill_manual(values=wes_palette(n=5, name="Zissou")) + coord_flip() +
+  theme(legend.key.height=unit(4,"line"),axis.text=element_text(face="bold", size = 30))
+
+table(classified.df$type)
+```
+
